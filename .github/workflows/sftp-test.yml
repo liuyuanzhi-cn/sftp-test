@@ -1,4 +1,4 @@
-name: Public SFTP Test Server
+name: Public SFTP Test Server (Alternative)
 on:
   workflow_dispatch:
 
@@ -6,30 +6,25 @@ jobs:
   setup-sftp:
     runs-on: ubuntu-latest
     steps:
-      - name: Setup SFTP Server with write permissions
+      - name: Setup SFTP Server with full permissions
         run: |
-          # 创建用户配置，给予完整权限
-          echo "testuser:testpass:1001:1001:upload" > /tmp/users.conf
-          
+          # 使用更简单的配置
           docker run -d \
             --name sftp-server \
             -p 2222:22 \
-            -v /tmp/users.conf:/etc/sftp/users.conf:ro \
-            atmoz/sftp:alpine
+            atmoz/sftp:alpine \
+            testuser:testpass:::upload
 
       - name: Wait for container to start
         run: |
           sleep 15
 
-      - name: Setup ngrok with auth
+      - name: Setup ngrok
         run: |
           curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
           echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
           sudo apt update
           sudo apt install ngrok -y
-
-      - name: Configure ngrok auth
-        run: |
           ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
 
       - name: Start ngrok tunnel
@@ -40,59 +35,28 @@ jobs:
           TUNNEL_INFO=$(curl -s localhost:4040/api/tunnels)
           PUBLIC_URL=$(echo $TUNNEL_INFO | grep -o '"public_url":"[^"]*"' | head -1 | cut -d'"' -f4)
           
-          if [ ! -z "$PUBLIC_URL" ]; then
-            echo "Public SFTP Server: $PUBLIC_URL"
-            echo "Username: testuser"
-            echo "Password: testpass"
-            echo "PUBLIC_SFTP_URL=$PUBLIC_URL" >> $GITHUB_ENV
-          else
-            echo "Failed to get public URL, check http://localhost:4040"
-          fi
-
-      - name: Display connection info
-        run: |
-          echo "=================================================="
-          echo "SFTP Test Server Information:"
+          echo "Public SFTP Server: $PUBLIC_URL"
           echo "Username: testuser"
           echo "Password: testpass"
-          echo ""
-          echo "Local testing:"
-          echo "  sftp -P 2222 testuser@localhost"
-          echo ""
-          echo "External testing:"
-          if [ ! -z "${{ env.PUBLIC_SFTP_URL }}" ]; then
-            PORT=$(echo ${{ env.PUBLIC_SFTP_URL }} | cut -d':' -f3)
-            HOST=$(echo ${{ env.PUBLIC_SFTP_URL }} | cut -d':' -f2 | sed 's/\/\///')
-            echo "  sftp -P $PORT testuser@$HOST"
+
+      - name: Display detailed connection info
+        run: |
+          echo "=================================================="
+          echo "SFTP Test Server - Full Access Test"
+          echo "Username: testuser"
+          echo "Password: testpass"
+          if [ ! -z "$PUBLIC_URL" ]; then
+            PORT=$(echo $PUBLIC_URL | cut -d':' -f3)
+            HOST=$(echo $PUBLIC_URL | cut -d':' -f2 | sed 's/\/\///')
+            echo ""
+            echo "Test commands:"
+            echo "1. sftp -P $PORT testuser@$HOST"
+            echo "2. In SFTP session:"
+            echo "   mkdir test_folder"
+            echo "   put /path/to/local/file.txt"
+            echo "   ls -la"
           fi
           echo "=================================================="
 
-      - name: Test local functionality
-        run: |
-          echo "Testing local SFTP functionality..."
-          # 创建测试脚本
-          cat > /tmp/sftp_test.sh << 'EOF'
-#!/usr/bin/expect -f
-spawn sftp -P 2222 testuser@localhost
-expect "password:"
-send "testpass\r"
-expect "sftp>"
-send "mkdir test_folder\r"
-expect "sftp>"
-send "put /etc/hosts test_file.txt\r"
-expect "sftp>"
-send "ls -la\r"
-expect "sftp>"
-send "quit\r"
-EOF
-          
-          chmod +x /tmp/sftp_test.sh
-          # 安装expect用于自动化测试
-          sudo apt install -y expect
-          # 运行测试（可能会失败，但会显示详细信息）
-          timeout 30 /tmp/sftp_test.sh || echo "Local test completed"
-
       - name: Keep alive
-        run: |
-          echo "Server will remain active for 10 minutes..."
-          sleep 600
+        run: sleep 600
