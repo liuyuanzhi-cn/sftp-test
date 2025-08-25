@@ -8,7 +8,6 @@ jobs:
     steps:
       - name: Setup SFTP Server
         run: |
-          # 使用端口2222避免冲突
           docker run -d \
             --name sftp-server \
             -p 2222:22 \
@@ -19,10 +18,8 @@ jobs:
         run: |
           sleep 15
           docker ps
-          echo "Container logs:"
-          docker logs sftp-server
 
-      - name: Setup ngrok
+      - name: Setup ngrok with auth
         run: |
           # 安装ngrok
           curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
@@ -30,37 +27,41 @@ jobs:
           sudo apt update
           sudo apt install ngrok -y
 
-      - name: Start ngrok tunnel
-        env:
-          NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}  # 可选
+      - name: Configure ngrok auth
         run: |
-          # 启动ngrok（不使用认证也可以）
+          ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+
+      - name: Start ngrok tunnel
+        run: |
+          # 启动ngrok
           ngrok tcp 2222 > /tmp/ngrok.log &
           sleep 10
           
           # 获取公网地址
-          if command -v curl &> /dev/null; then
-            TUNNEL_INFO=$(curl -s localhost:4040/api/tunnels)
-            PUBLIC_URL=$(echo $TUNNEL_INFO | grep -o '"public_url":"[^"]*"' | head -1 | cut -d'"' -f4)
+          TUNNEL_INFO=$(curl -s localhost:4040/api/tunnels)
+          PUBLIC_URL=$(echo $TUNNEL_INFO | grep -o '"public_url":"[^"]*"' | head -1 | cut -d'"' -f4)
+          
+          if [ ! -z "$PUBLIC_URL" ]; then
             echo "Public SFTP Server: $PUBLIC_URL"
             echo "Username: testuser"
             echo "Password: testpass"
             echo "Example connection: sftp -P ${PUBLIC_URL##*:} testuser@${PUBLIC_URL%:*}"
+            echo "PUBLIC_SFTP_URL=$PUBLIC_URL" >> $GITHUB_ENV
           else
-            echo "Ngrok started, check http://localhost:4040 for tunnel info"
+            echo "Failed to get public URL"
           fi
 
-      - name: Test local connection
-        run: |
-          echo "Testing local SFTP connection..."
-          echo "ls" | timeout 10s sftp -P 2222 -o StrictHostKeyChecking=no testuser@localhost || echo "Local test completed"
-
-      - name: Server info
+      - name: Display connection info
         run: |
           echo "=================================================="
-          echo "SFTP Test Server is now running!"
+          echo "SFTP Test Server Information:"
+          echo "Username: testuser"
+          echo "Password: testpass"
           echo "Local testing: sftp -P 2222 testuser@localhost"
-          echo "Check http://localhost:4040 for public URL"
+          if [ ! -z "${{ env.PUBLIC_SFTP_URL }}" ]; then
+            echo "Public URL: ${{ env.PUBLIC_SFTP_URL }}"
+            echo "Public port: $(echo ${{ env.PUBLIC_SFTP_URL }} | cut -d':' -f3)"
+          fi
           echo "Server will remain active for 10 minutes"
           echo "=================================================="
 
