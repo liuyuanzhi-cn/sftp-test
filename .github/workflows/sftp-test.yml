@@ -1,0 +1,43 @@
+name: SFTP Server Test
+on:
+  workflow_dispatch:  # 手动触发
+  push:
+    branches: [ main ]
+
+jobs:
+  setup-sftp-server:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup SFTP Server
+        run: |
+          # 启动SFTP服务器容器
+          docker run -d \
+            --name sftp-server \
+            -p 22:22 \
+            atmoz/sftp \
+            testuser:testpass:1001:::upload
+
+      - name: Wait for server to start
+        run: |
+          sleep 10
+          docker logs sftp-server
+
+      - name: Get Runner IP
+        run: |
+          echo "Runner IP: $(curl -s ifconfig.me)"
+          echo "Server is running on port 22"
+          echo "注意：由于GitHub Actions网络限制，外部可能无法直接访问"
+
+      - name: Test SFTP locally
+        run: |
+          # 在Actions环境中测试连接
+          echo "Testing local SFTP connection..."
+          echo "put test-file.txt" | sftp -o StrictHostKeyChecking=no testuser@localhost
+          
+      - name: Keep alive
+        run: |
+          echo "SFTP server is running for 10 minutes"
+          sleep 600  # 保持运行10分钟
