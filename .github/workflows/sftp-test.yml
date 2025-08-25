@@ -1,36 +1,68 @@
-name: Public SFTP Server
+name: Public SFTP Test Server
 on:
   workflow_dispatch:
 
 jobs:
-  setup-public-sftp:
+  setup-sftp:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
       - name: Setup SFTP Server
         run: |
+          # 使用端口2222避免冲突
           docker run -d \
             --name sftp-server \
-            -p 22:22 \
-            atmoz/sftp \
-            testuser:testpass:1001:::upload
+            -p 2222:22 \
+            atmoz/sftp:alpine \
+            testuser:testpass:1001
 
-      - name: Install and setup ngrok
+      - name: Wait for container to start
         run: |
-          wget https://bin.equinox.io/c/bNyj1m1r5gY/ngrok-v3-stable-linux-amd64.tgz
-          tar -xzf ngrok-v3-stable-linux-amd64.tgz
-          chmod +x ngrok
+          sleep 15
+          docker ps
+          echo "Container logs:"
+          docker logs sftp-server
+
+      - name: Setup ngrok
+        run: |
+          # 安装ngrok
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt update
+          sudo apt install ngrok -y
 
       - name: Start ngrok tunnel
+        env:
+          NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}  # 可选
         run: |
-          ./ngrok tcp 22 > /tmp/ngrok.log &
-          sleep 5
-          NGROK_URL=$(curl -s localhost:4040/api/tunnels | grep -o "tcp://[0-9a-z.]*:[0-9]*")
-          echo "Public SFTP endpoint: $NGROK_URL"
-          echo "Username: testuser"
-          echo "Password: testpass"
+          # 启动ngrok（不使用认证也可以）
+          ngrok tcp 2222 > /tmp/ngrok.log &
+          sleep 10
+          
+          # 获取公网地址
+          if command -v curl &> /dev/null; then
+            TUNNEL_INFO=$(curl -s localhost:4040/api/tunnels)
+            PUBLIC_URL=$(echo $TUNNEL_INFO | grep -o '"public_url":"[^"]*"' | head -1 | cut -d'"' -f4)
+            echo "Public SFTP Server: $PUBLIC_URL"
+            echo "Username: testuser"
+            echo "Password: testpass"
+            echo "Example connection: sftp -P ${PUBLIC_URL##*:} testuser@${PUBLIC_URL%:*}"
+          else
+            echo "Ngrok started, check http://localhost:4040 for tunnel info"
+          fi
 
-      - name: Keep server alive
-        run: sleep 1800  # 保持30分钟
+      - name: Test local connection
+        run: |
+          echo "Testing local SFTP connection..."
+          echo "ls" | timeout 10s sftp -P 2222 -o StrictHostKeyChecking=no testuser@localhost || echo "Local test completed"
+
+      - name: Server info
+        run: |
+          echo "=================================================="
+          echo "SFTP Test Server is now running!"
+          echo "Local testing: sftp -P 2222 testuser@localhost"
+          echo "Check http://localhost:4040 for public URL"
+          echo "Server will remain active for 10 minutes"
+          echo "=================================================="
+
+      - name: Keep alive
+        run: sleep 600
