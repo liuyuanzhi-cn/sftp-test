@@ -1,43 +1,36 @@
-name: SFTP Server Test
+name: Public SFTP Server
 on:
-  workflow_dispatch:  # 手动触发
-  push:
-    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  setup-sftp-server:
+  setup-public-sftp:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v3
 
       - name: Setup SFTP Server
         run: |
-          # 启动SFTP服务器容器
           docker run -d \
             --name sftp-server \
             -p 22:22 \
             atmoz/sftp \
             testuser:testpass:1001:::upload
 
-      - name: Wait for server to start
+      - name: Install and setup ngrok
         run: |
-          sleep 10
-          docker logs sftp-server
+          wget https://bin.equinox.io/c/bNyj1m1r5gY/ngrok-v3-stable-linux-amd64.tgz
+          tar -xzf ngrok-v3-stable-linux-amd64.tgz
+          chmod +x ngrok
 
-      - name: Get Runner IP
+      - name: Start ngrok tunnel
         run: |
-          echo "Runner IP: $(curl -s ifconfig.me)"
-          echo "Server is running on port 22"
-          echo "注意：由于GitHub Actions网络限制，外部可能无法直接访问"
+          ./ngrok tcp 22 > /tmp/ngrok.log &
+          sleep 5
+          NGROK_URL=$(curl -s localhost:4040/api/tunnels | grep -o "tcp://[0-9a-z.]*:[0-9]*")
+          echo "Public SFTP endpoint: $NGROK_URL"
+          echo "Username: testuser"
+          echo "Password: testpass"
 
-      - name: Test SFTP locally
-        run: |
-          # 在Actions环境中测试连接
-          echo "Testing local SFTP connection..."
-          echo "put test-file.txt" | sftp -o StrictHostKeyChecking=no testuser@localhost
-          
-      - name: Keep alive
-        run: |
-          echo "SFTP server is running for 10 minutes"
-          sleep 600  # 保持运行10分钟
+      - name: Keep server alive
+        run: sleep 1800  # 保持30分钟
