@@ -6,22 +6,23 @@ jobs:
   setup-sftp:
     runs-on: ubuntu-latest
     steps:
-      - name: Setup SFTP Server
+      - name: Setup SFTP Server with write permissions
         run: |
+          # 创建用户配置，给予完整权限
+          echo "testuser:testpass:1001:1001:upload" > /tmp/users.conf
+          
           docker run -d \
             --name sftp-server \
             -p 2222:22 \
-            atmoz/sftp:alpine \
-            testuser:testpass:1001
+            -v /tmp/users.conf:/etc/sftp/users.conf:ro \
+            atmoz/sftp:alpine
 
       - name: Wait for container to start
         run: |
           sleep 15
-          docker ps
 
       - name: Setup ngrok with auth
         run: |
-          # 安装ngrok
           curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
           echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
           sudo apt update
@@ -33,11 +34,9 @@ jobs:
 
       - name: Start ngrok tunnel
         run: |
-          # 启动ngrok
           ngrok tcp 2222 > /tmp/ngrok.log &
           sleep 10
           
-          # 获取公网地址
           TUNNEL_INFO=$(curl -s localhost:4040/api/tunnels)
           PUBLIC_URL=$(echo $TUNNEL_INFO | grep -o '"public_url":"[^"]*"' | head -1 | cut -d'"' -f4)
           
@@ -45,10 +44,9 @@ jobs:
             echo "Public SFTP Server: $PUBLIC_URL"
             echo "Username: testuser"
             echo "Password: testpass"
-            echo "Example connection: sftp -P ${PUBLIC_URL##*:} testuser@${PUBLIC_URL%:*}"
             echo "PUBLIC_SFTP_URL=$PUBLIC_URL" >> $GITHUB_ENV
           else
-            echo "Failed to get public URL"
+            echo "Failed to get public URL, check http://localhost:4040"
           fi
 
       - name: Display connection info
@@ -57,13 +55,44 @@ jobs:
           echo "SFTP Test Server Information:"
           echo "Username: testuser"
           echo "Password: testpass"
-          echo "Local testing: sftp -P 2222 testuser@localhost"
+          echo ""
+          echo "Local testing:"
+          echo "  sftp -P 2222 testuser@localhost"
+          echo ""
+          echo "External testing:"
           if [ ! -z "${{ env.PUBLIC_SFTP_URL }}" ]; then
-            echo "Public URL: ${{ env.PUBLIC_SFTP_URL }}"
-            echo "Public port: $(echo ${{ env.PUBLIC_SFTP_URL }} | cut -d':' -f3)"
+            PORT=$(echo ${{ env.PUBLIC_SFTP_URL }} | cut -d':' -f3)
+            HOST=$(echo ${{ env.PUBLIC_SFTP_URL }} | cut -d':' -f2 | sed 's/\/\///')
+            echo "  sftp -P $PORT testuser@$HOST"
           fi
-          echo "Server will remain active for 10 minutes"
           echo "=================================================="
 
+      - name: Test local functionality
+        run: |
+          echo "Testing local SFTP functionality..."
+          # 创建测试脚本
+          cat > /tmp/sftp_test.sh << 'EOF'
+#!/usr/bin/expect -f
+spawn sftp -P 2222 testuser@localhost
+expect "password:"
+send "testpass\r"
+expect "sftp>"
+send "mkdir test_folder\r"
+expect "sftp>"
+send "put /etc/hosts test_file.txt\r"
+expect "sftp>"
+send "ls -la\r"
+expect "sftp>"
+send "quit\r"
+EOF
+          
+          chmod +x /tmp/sftp_test.sh
+          # 安装expect用于自动化测试
+          sudo apt install -y expect
+          # 运行测试（可能会失败，但会显示详细信息）
+          timeout 30 /tmp/sftp_test.sh || echo "Local test completed"
+
       - name: Keep alive
-        run: sleep 600
+        run: |
+          echo "Server will remain active for 10 minutes..."
+          sleep 600
