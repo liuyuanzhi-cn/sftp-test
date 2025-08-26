@@ -35,7 +35,7 @@
 
 ### 4. 运行工作流，获取 SFTP 信息
 
-1. 进入仓库 **Actions** 标签，找到 **SFTP Server with Ngrok** 工作流，点击 **Run workflow**。
+1. 进入仓库 **Actions** 标签，找到 **Public SFTP Test Server (Alternative)** 工作流，点击 **Run workflow**。
 2. 选择分支（如 `main`），运行工作流。
 3. 等待执行完成（约 1～3 分钟）。
 4. 在工作流日志中查看 SFTP 登录信息：
