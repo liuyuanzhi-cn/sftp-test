@@ -50,7 +50,7 @@
 ```shell
 sftp -P 10741 testuser@4.tcp.ngrok.io
 ```
-![](https://s3.xuehappy.com/2025/08/5d17f80a659f224189d4fd9a7f2857a6.png)
+![](https://s3.xuehappy.com/2025/08/e8886cf14b3932bc027c07dadbc5fedf.png)
 
 
 ## ⏳ 注意事项
